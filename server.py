@@ -3,7 +3,7 @@
 from commands import *
 
 print("Initializing Server...")
-print("PLEASE NOTE: You can only have up to 5 messages stored asynchronously on the server, for storage reasons.")
+print("PLEASE NOTE: You can only have up to 5 messages to a recipient stored asynchronously on the server, for one-time-key reasons.")
 
 #Listen for registrations and messaging
 
