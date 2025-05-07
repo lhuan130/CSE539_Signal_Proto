@@ -48,15 +48,6 @@ def main():
     print("Hitting enter will send your message.")
     User_msg_send(name, input())
 
-# # TODO use parameters to generate private key.
-# # Generate a private key for use in the exchange.
-# server_private_key = parameters.generate_private_key()
-# # In a real handshake the peer is a remote client. For this
-# # example we'll generate another local private key though. Note that in
-# # a DH handshake both peers must agree on a common set of parameters.
-
-# peer_private_key = parameters.generate_private_key()
-# shared_key = server_private_key.exchange(peer_private_key.public_key())
 # # Perform key derivation.
 # derived_key = HKDF(
 #   algorithm=hashes.SHA256(),
@@ -64,17 +55,5 @@ def main():
 #   salt=None,
 #   info=b'handshake data',
 # ).derive(shared_key)
-# # And now we can demonstrate that the handshake performed in the
-# # opposite direction gives the same final value
-# same_shared_key = peer_private_key.exchange(
-#   server_private_key.public_key()
-# )
-# same_derived_key = HKDF(
-#   algorithm=hashes.SHA256(),
-#   length=32,
-#   salt=None,
-#   info=b'handshake data',
-# ).derive(same_shared_key)
-# print(derived_key == same_derived_key, "DH Demoed")
 
 main()

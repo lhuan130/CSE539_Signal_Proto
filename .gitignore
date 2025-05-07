@@ -161,3 +161,6 @@ cython_debug/
 
 #Additional extensions to ensure no generated data is stored to the repository
 *.pem
+*.dat
+*.hx
+*log.txt

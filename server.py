@@ -9,7 +9,7 @@ print("PLEASE NOTE: You can only have up to 5 messages to a recipient stored asy
 
 import socket
 with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-  s.bind(('', 24601))
+  s.bind(('', target_port))
   s.listen(2)
   print("READY TO RECEIVE") #Run client1.py OR client2.py at this point
   i = 0
