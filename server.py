@@ -2,6 +2,7 @@
 
 from commands import *
 
+serverStartup()
 print("Initializing Server...")
 print("PLEASE NOTE: You can only have up to 5 messages to a recipient stored asynchronously on the server, for one-time-key reasons.")
 
