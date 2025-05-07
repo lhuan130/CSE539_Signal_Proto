@@ -48,12 +48,4 @@ def main():
     print("Hitting enter will send your message.")
     User_msg_send(name, input())
 
-# # Perform key derivation.
-# derived_key = HKDF(
-#   algorithm=hashes.SHA256(),
-#   length=32,
-#   salt=None,
-#   info=b'handshake data',
-# ).derive(shared_key)
-
 main()
