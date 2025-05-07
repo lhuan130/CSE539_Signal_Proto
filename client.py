@@ -39,12 +39,12 @@ def main():
   
   if dataInt == 2:
     #Resync with server using existing client's files
-    User_resync(name)
+    if User_connect(name):
+      User_resync(name)
   
   if dataInt == 3:
     #Send a message with your current keyset.
-    print("Enter the message you wish to send.")
-    print("Unfortuantely, I can only handle text.")
+    print("Enter the message you wish to send (I can only handle text).")
     print("Hitting enter will send your message.")
     User_msg_send(name, input())
 

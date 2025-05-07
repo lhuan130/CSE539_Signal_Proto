@@ -1,10 +1,14 @@
 #Helper commands for both clients and servers in the demo
 import socket, datetime, time
+from os.path import exists
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey, Ed25519PublicKey
+from cryptography.hazmat.primitives.asymmetric.x25519 import X25519PrivateKey, X25519PublicKey
+from cryptography.hazmat.primitives.serialization import NoEncryption, Encoding, PrivateFormat
+
+#some constants
 target_port = 24601
 
-
 ##CLIENT##
-
 msg_file = '_data/msg_log.txt'
 
 #Register ID key, signed prekey, and one-time keys
@@ -17,23 +21,18 @@ def User_register(uname:str):
     #generate 3 sets of keys: identity, signed prekey, multiple one-time keys
     #use EdDSA for middle prekey signature
     #store necessary pieces to file system
-  from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
-  from cryptography.hazmat.primitives.serialization import NoEncryption, Encoding, PrivateFormat, PublicFormat
   foldertag = f"{uname}_data/"
 
   #ID key
   print("Generating ID key")
   identity_key = Ed25519PrivateKey.generate() #a different type, because it has to SIGN the prekey's public bytes
-  #keyList.append(identity_key)
   idkeyf = foldertag + f"{uname}_id_key.pem"
   with open(idkeyf,'wb') as f:
     f.write(identity_key.private_bytes(Encoding.PEM,PrivateFormat.PKCS8,NoEncryption()))
 
   #Long-term (signed) prekey
-  from cryptography.hazmat.primitives.asymmetric.x25519 import X25519PrivateKey
   print("Generating long-term prekey")
   signed_prekey = X25519PrivateKey.generate()
-  #keyList.append(signed_prekey)
   print("Signing prekey with ID key")
   spk_pub_bytes = signed_prekey.public_key().public_bytes_raw()
   spk_sig = identity_key.sign(spk_pub_bytes)
@@ -50,6 +49,7 @@ def User_register(uname:str):
   with open(spkeysigf,'w') as f:
     f.write(spk_sig.hex())
 
+  #Group of one-time keys
   otKeyList = dict()
   otkf1 = foldertag+f"{uname}_otk_"
   for i in range(5):
@@ -71,78 +71,66 @@ def User_register(uname:str):
     s.send(uname.encode())
     msg = s.recv(32)
     print(msg.decode(),"\n")#You should get "User good."
-
     #instruction
     s.send(b'Register')
     time.sleep(2)
-
     #registration order: ID pubkey, signed pub-prekey, signature, one-time pubkeys
-    #id pubkey
-    s.send(identity_key.public_key().public_bytes_raw())
+    s.send(identity_key.public_key().public_bytes_raw()) #id pubkey
     time.sleep(2)
-    #msg = s.recv(256) #confirmation
-    #print(msg.decode(),"-> Msg from server.")
-    
-    #TODO signed pub prekey
-    s.send(spk_pub_bytes)
+    s.send(spk_pub_bytes) #signed pub prekey
     time.sleep(2)
-    #msg = s.recv(256) #confirmation
-    #print(msg.decode(),"-> Msg from server.")
-
-    #TODO sig
-    s.send(spk_sig)
+    s.send(spk_sig) #prekey signature with idkey
     time.sleep(2)
-    #msg = s.recv(256) #confirmation
-    #print(msg.decode(),"-> Msg from server.")
-
-    #TODO otks
-    for kname in otKeyList:
+    for kname in otKeyList: #otks
       s.send(otKeyList[kname].public_key().public_bytes_raw())
       time.sleep(2)
-      #msg = s.recv(256) #confirmation
-      #print(msg.decode(),"-> Msg from server.")
-
     #end of interaction for registration
-    #msg = s.recv(256) #end of send confirmation
-    #print(msg.decode(),"-> Msg from server.")
     s.send(b'Done')
     time.sleep(2)
     s.close()
-  
+
+def User_connect(uname:str):
+  # Server ensures there is a potential connection
+  # If there isn't a potential connection, this will return false.
+  # If there is a connection to be made, this will return false after finishing the handshaking.
+  # Otherwise, this will update the server with otks and return true
+  pass
+
+def User_handshakes(uname:str):
+  pass
 
 def User_resync(uname:str):
   pass
 
 def User_msg_send(uname:str, msg:str):
-  from cryptography.hazmat.primitives.kdf.hkdf import HKDF
-  from cryptography.hazmat.primitives import hashes
-  hkdf_driver = HKDF(
-    algorithm=hashes.SHA256(),
-    length=32,
-    salt=None,
-    info=b'handshake data',
-  )
+  pass
 
+  # from cryptography.hazmat.primitives.kdf.hkdf import HKDF
+  # from cryptography.hazmat.primitives import hashes
+  # hkdf_driver = HKDF(
+  #   algorithm=hashes.SHA256(),
+  #   length=32,
+  #   salt=None,
+  #   info=b'handshake data',
+  # )
 
 
 ##SERVER##
-
 userSet = set(['alice','bob'])
+receiver_list = "server_data/new_rec_users.txt"
+handshook_list = "server_data/ready_users.txt"
+
 def verifyUser(connection:socket):
   msg = connection.recv(32)
   uname = msg.decode()
   return True if uname in userSet else False, uname
 
 def handleRegistration(connection:socket,uname:str):
-  from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
-  from cryptography.hazmat.primitives.asymmetric.x25519 import X25519PublicKey
-
   #During registration, we use the bytes sent and regenerate the key objects to check validity
   save_folder = f"server_data/{uname}_"
 
   #id pubkey
   msg = connection.recv(128)
-  #connection.send(b'Received raw public idkey')
   try:
     idkey = Ed25519PublicKey.from_public_bytes(msg)
     #save the identity public key's bytes
@@ -152,7 +140,6 @@ def handleRegistration(connection:socket,uname:str):
     print(f"Failed to load ID key for {uname}")
   #signed pubkey
   signedpk_bytes = connection.recv(128)
-  #connection.send(b'Received raw longterm public prekey')
   try:
     ltspk = X25519PublicKey.from_public_bytes(signedpk_bytes)
     #save the long-term prekey's signed bytes
@@ -162,8 +149,6 @@ def handleRegistration(connection:socket,uname:str):
     print(f"Failed to load raw longterm public prekey for {uname}")
   #signature
   sig_bytes = connection.recv(128)
-  #print(len(sig_bytes),sig_bytes.hex())
-  #connection.send(b'Received signature of public lt-prekey')
   try:
     idkey.verify(signature=sig_bytes,data=ltspk.public_bytes_raw())
     #save signature
@@ -188,7 +173,18 @@ def handleRegistration(connection:socket,uname:str):
   #Receive last message
   msg = connection.recv(128)
   print(msg.encode())
+
+  #Note registerer in file so that other registering party is connected
+  with open(receiver_list,'a') as f:
+    f.write(f"{uname}\n")
   return
+
+def handleCon(connection:socket,uname:str):
+  pass
+
+  #Receive last message
+  msg = connection.recv(256)
+  print(msg.encode())
 
 def handleListenerReq(connection:socket,uname:str):
   pass
@@ -225,6 +221,9 @@ def handleClient(connection:socket, address):
     if instr.startswith('Reg'):
       print(f"Handling new registration by {username}")
       handleRegistration(connection,username)
+    if instr.startswith("Con"):
+      print(f"Checking if {username} has a chat session.")
+      handleCon(connection,username)
     if instr.startswith('Lis'):
       print(f"Client {username} is updating their state with the server.")
       handleListenerReq(connection,username)
