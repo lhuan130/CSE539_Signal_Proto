@@ -11,7 +11,7 @@ from commands import *
 #       - provide X one-time-keys until server has 5 available
 #   3 - Use existing key stores and encrypt a single message to the server for the other client.
 def main():
-  name = (input("Client name (enter 'alice' or 'bob';\nbob should be registered first for the demo):  ")).lower()
+  name = (input("Client name (enter 'alice' or 'bob';\nbob should be registered first for the demo) >- ")).lower()
   if name not in userSet:
     print("Valid user (for two-person exchange demo) please.")
     return
@@ -22,7 +22,7 @@ def main():
   print("  Please note that 2,3 are distinct interactions and do not overlap.")
   while True:
     try:
-      userInt = input("Your entry:")
+      userInt = input("Your entry: ")
       dataInt = int(userInt)
       if dataInt < 0 or dataInt > 3:
         print("Try again.")
@@ -46,9 +46,9 @@ def main():
     #The registered user now has to do the shared KDF and receive the first message
     User_listen(name)
   
-  if dataInt == 4:
+#  if dataInt == 4:
     #Either party can now send messages to the other
     #This operation opens with a check for existing messages
-    User_send(name)
+#    User_send(name)
 
 main()
