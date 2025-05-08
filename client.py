@@ -44,10 +44,11 @@ def main():
   
   if dataInt == 3:
     #The registered user now has to do the shared KDF and receive the first message
-    User_receive1(name)
+    User_listen(name)
   
   if dataInt == 4:
     #Either party can now send messages to the other
+    #This operation opens with a check for existing messages
     User_send(name)
 
 main()

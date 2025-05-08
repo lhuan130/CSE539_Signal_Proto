@@ -1,7 +1,7 @@
 #Helper commands for both clients and servers in the demo
 
 
-import socket, datetime, time
+import socket, datetime, time, os
 from os.path import exists
 from cryptography.hazmat.primitives.serialization import NoEncryption, Encoding, PrivateFormat, PublicFormat, load_pem_private_key, load_pem_public_key
 from cryptography.hazmat.primitives.asymmetric import ec
@@ -88,7 +88,7 @@ def User_register(uname:str):
     time.sleep(2)
     s.send(spk_sig) #prekey signature with idkey
     time.sleep(2)
-    for kname in otKeyList: #otks
+    for kname in otKeyList: #otk(s)
       s.send(otKeyList[kname].public_key().public_bytes(Encoding.PEM,PublicFormat.SubjectPublicKeyInfo))
       time.sleep(2)
     #end of interaction for registration
@@ -97,22 +97,20 @@ def User_register(uname:str):
 
 def User_request(uname:str):
   #NOTE: the OTK generated here is also provided as the Ephemeral key during the 3DH
-  
   foldertag = f"{uname}_data/"
 
   #Generate own IDkey and ephemeral key
   identity_key = ec.generate_private_key(curveType)
   idk_raw = identity_key.private_bytes(Encoding.PEM,PrivateFormat.PKCS8,NoEncryption())
-  idkeyf = f"{uname}_id_key.pem"
-  with open(idkeyf,'wb') as f:
+  with open(foldertag+f"{uname}_id_key.pem",'wb') as f:
     f.write(idk_raw)
   ekey = ec.generate_private_key(curveType)
   with open(foldertag+f"{uname}_ephkey.pem",'wb') as f:
     f.write(ekey.private_bytes(Encoding.PEM,PrivateFormat.PKCS8,NoEncryption()))
 
-  print(f"Connecting to server as {uname} to request msg to {targetSet[uname]}.")
   #Interact with server to request connection with target
   #interleaved with socket handling, perform K1-4 generation and takes first message
+  print(f"Connecting to server as {uname} to request msg to {targetSet[uname]}.")
   with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
     s.connect(('127.0.0.1', target_port))
     #verify username
@@ -124,18 +122,22 @@ def User_request(uname:str):
     time.sleep(2)
 
     #Send second IDkey and ephemeral key
+    print("Sending identity & ephemeral keys.")
     s.send(identity_key.public_key().public_bytes(Encoding.PEM,PublicFormat.SubjectPublicKeyInfo))
     time.sleep(2)
     s.send(ekey.public_key().public_bytes(Encoding.PEM,PublicFormat.SubjectPublicKeyInfo))
+    time.sleep(2)
     print("Receiving public keys")
     #receive idpubkey
     idpubkey_bytes = s.recv(1024)
+    print(idpubkey_bytes)
     t_idpk = load_pem_public_key(idpubkey_bytes)
     K1 = identity_key.exchange(exc_alg,t_idpk)
     K2 = ekey.exchange(exc_alg,t_idpk)
     #receive signature and signed pubprekey
     sig_ltpk_bytes = s.recv(1024)
     ltpk_bytes = s.recv(1024)
+    print(ltpk_bytes)
     t_ltpk = load_pem_public_key(ltpk_bytes)
     try:
       t_idpk.verify(sig_ltpk_bytes,ltpk_bytes,sig_alg)
@@ -144,6 +146,7 @@ def User_request(uname:str):
     K3 = ekey.exchange(exc_alg,t_ltpk)
     #receive one-time pubkey
     otk_bytes = s.recv(1024)
+    print(otk_bytes)
     t_otpk = load_pem_public_key(otk_bytes)
     K4 = ekey.exchange(exc_alg,t_otpk)
 
@@ -154,30 +157,71 @@ def User_request(uname:str):
     keyconcat.extend(K2)
     keyconcat.extend(K3)
     keyconcat.extend(K4)
-    K = HKDFExpand(kdf_hash(),64,info=b'signaldemo').derive(keyconcat)
-    print(K.hex())
-    s.send(b'Proof 2nd client and server exchanged')#TOOD replace
-  
-  
+    K = HKDFExpand(kdf_hash(),64,info=b'signaldemo').derive(bytes(keyconcat))
+    K = bytearray(K)
+    #print(K.hex())
+    print(bytes(K[:32]).hex())
+    print(bytes(K[32:]).hex())
+    #os.urandom(12)
+    print(identity_key.public_key().public_bytes(Encoding.Raw,PublicFormat.Raw).hex())
+    
+    #encrypted message
+    msgData = input("Send your first message: > ")
+    s.send(msgData.encode())
+    time.sleep(2)
+    s.send(b'Confirming 2nd client has sent message to registerer.')#TOOD replace
+    time.sleep(2)
 
+def User_listen(uname:str):
+  #Open local private keys
+  foldertag = f"{uname}_data/"
+  idkf = f"{uname}_id_key.pem"
+  spkf = f"{uname}_spkey.pem"
+  otkf = f"{uname}_otk_0.pem"
+  with open(foldertag+idkf,'r') as f:
+    ikb = load_pem_private_key()
+  with open(foldertag+spkf,'r') as f:
+    spkb = load_pem_private_key()
+  with open(foldertag+otkf,'r') as f:
+    opkb = load_pem_private_key()
   
+  #TODO collect other party's keys and first ciphertext
+  print(f"Connecting to server as {uname} to receive message from {targetSet[uname]}.")
+  with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+    s.connect(('127.0.0.1', target_port))
+    #verify username
+    s.send(uname.encode())
+    msg = s.recv(32)
+    print(msg.decode(),"\n")#You should get "User good."
+    #instruction
+    s.send(b'Async') #this lets server know it's the "Step 3" from lecture
+    #receive other idpk
+    id_pka_bytes = s.recv(1024)
+    try:
+      id_pka = load_pem_public_key(id_pka_bytes)
+    except Exception as e:
+      print(e)
+      print("Failure to load other party's identity pkey")
+    #receive eph_pk
+    eph_pka_bytes = s.recv(1024)
+    try:
+      eph_pka = load_pem_public_key(eph_pka_bytes)
+    except Exception as e:
+      print(e)
+      print("Failure to load other party's ephemeral pkey")
+    #receive ciphertext bytes
+    ct = s.recv(512)
+    print("Byt:",ct.decode())
+    print("HEX:",ct.hex())
+    time.sleep(1)
+    #send received confirmation
+    s.send(b'Confirmed received.')
+    time.sleep(1)
 
-  #HKDF -> generate keychains
-  # from cryptography.hazmat.primitives.kdf.hkdf import HKDF
-  # from cryptography.hazmat.primitives import hashes
-  # hkdf_driver = HKDF(
-  #   algorithm=kdf_alg,
-  #   length=64,
-  #   salt=None,
-  #   info=b'handshake data',
-  # )
-# # Perform key derivation.
-# derived_key = HKDF(
-#   algorithm=kdf_alg,
-#   length=64,
-#   salt=None,
-#   info=b'handshake data',
-# ).derive(shared_key)
+  #TODO decode ciphertext and display its contents
+
+
+
 
 
 ##SERVER##
@@ -250,54 +294,97 @@ def handleCon(connection:socket,uname:str):
   #Receive applying client's ID key and ephemeral key
   idkf, ephkf = f"server_data/{uname}_id_key.pem",f"server_data/{uname}_eph.pem"
 
-  idk_bytes = connection.recv(1024)
+  idk_bytes = (connection.recv(1024))
   try:
     second_id = load_pem_public_key(idk_bytes)
     with open(idkf,'wb') as f:
-      f.write(idkf)
+      f.write(idk_bytes)
+    print("Identity key loaded and saved.")
   except Exception as e:
     print(e)
     print("Error loading ID key of client trying to handshake.")
-  eph_bytes = connection.recv(1024)
+  eph_bytes = (connection.recv(1024))
   try:
-    eph_pk = load_pem_public_key(idk_bytes)
+    eph_pk = load_pem_public_key(eph_bytes)
     with open(ephkf,'wb') as f:
-      f.write(ephkf)
+      f.write(eph_bytes)
+    print("Ephemeral key loaded and saved.")
   except Exception as e:
     print(e)
     print("Error loading ephemeral key of client trying to handshake.")
   time.sleep(2)
   #send public keys and ID-signature of registered client
-  otherClient,targetList,sname = targetSet[uname],[],f"server_data/{otherClient}"
-  targetList.append(sname+"_id_pub.pem")
-  targetList.append(sname+"_ltprek_sig.pem")
-  targetList.append(sname+"_ltprek.pem")
-  targetList.append(sname+"_otk_0.pem")
-  for filename in targetList:
-    with open(filename,'rb') as f:
-      connection.send(f.read())
-    time.sleep(2)
-  time.sleep(3)
+  target = targetSet[uname]
+  print(target)
+  filename = f"server_data/{target}_id_pub.pem"
+  with open(filename,'r') as f:
+    print(f"Opening {filename} and sending to {uname}.")
+    fbyt = f.read()
+    print(fbyt)
+    connection.send(fbyt.encode())
+  time.sleep(2)
+  filename = f"server_data/{target}_ltprek_sig.pem"
+  with open(filename,'rb') as f:
+    print(f"Opening {filename} and sending to {uname}.")
+    fbyt = f.read()
+    print(fbyt)
+    connection.send(fbyt)
+  time.sleep(2)
+  filename = f"server_data/{target}_ltprek.pem"
+  with open(filename,'r') as f:
+    print(f"Opening {filename} and sending to {uname}.")
+    fbyt = f.read()
+    print(fbyt)
+    connection.send(fbyt.encode())
+  time.sleep(2)
+  filename = f"server_data/{target}_otk_0.pem"
+  with open(filename,'r') as f:
+    print(f"Opening {filename} and sending to {uname}.")
+    fbyt = f.read()
+    print(fbyt)
+    connection.send(fbyt.encode())
+  time.sleep(2)
+
   #Handle first encrypted message from applier to registerer
   firstmsg = connection.recv(1024)
-  #TODO handle
-  print(firstmsg.encode())#TODO replace
+  print(firstmsg)
+  with open("server_data/first_msg.dat",'wb') as f:
+    f.write(firstmsg)
+  confirm = connection.recv(128)
+  print(confirm.encode())
 
 
 def handleListenerReq(connection:socket,uname:str):
-  pass
+  #load values and send over network, slight delays for control
+  target = targetSet[uname]
+  print(f"Sending {target}'s two keys back to first registered user.")
+  
+  #send other party's idk
+  with open(f"server_data/{target}_id_key.pem",'r') as f:
+    idpk = f.read()
+  connection.send(idpk.encode())
+  time.sleep(1)
 
-  #Receive last message
-  msg = connection.recv(256)
-  print(msg.encode())
+  #send other party's ephk
+  with open(f"server_data/{target}_eph.pem",'r') as f:
+    ephpk = f.read()
+  connection.send(ephpk.encode)
+  time.sleep(1)
+  
+  with open("server_data/first_msg.dat",'wb') as f:
+    firstmsg = f.read()
+  #send cipher bytes
+  connection.send(firstmsg)
+  time.sleep(1)
+
+  #TODO Receive confirmation from registerer client as receipt
+  msg = connection.recv(32)
+  print(msg.decode())
+  time.sleep(1) 
 
 
 def handleMsgSend(connection:socket,uname:str):
   pass
-
-  #Receive last message
-  msg = connection.recv(256)
-  print(msg.encode())
 
 
 #per-connection activity tree on server side
@@ -305,14 +392,13 @@ def handleClient(connection:socket, address):
   print("CONNECTION FROM:", str(address)) # display client address
   #verify that the connection is an expected user
   verified, username = verifyUser(connection)
-  if verified:
-    print(f"Verified {username}")
-    connection.send(b'User good.')
-  else:
+  if not verified:
     print("Invalid user detected. Shutting down connection.")
     connection.close()
     return
-  
+  time.sleep(1)
+  print(f"Verified {username}")
+  connection.send(b'User good.')
   #Now the user will have received a "User good." message and can make their request
   msg = connection.recv(128)
   instr = msg.decode()
