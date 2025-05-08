@@ -2,7 +2,6 @@
 
 
 import socket, datetime, time, os
-from os.path import exists
 from cryptography.hazmat.primitives.serialization import NoEncryption, Encoding, PrivateFormat, PublicFormat, load_pem_private_key, load_pem_public_key
 from cryptography.hazmat.primitives.asymmetric import ec
 from cryptography.hazmat.primitives import hashes
@@ -11,12 +10,15 @@ from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
 
 #some constants
+target_host = '127.0.0.1'
 target_port = 24601
 otk_ct = 1 #This would normally be higher, given potential renegotiation needs, but for the demo it is just once
 userSet = set(['alice','bob'])
 targetSet = {'alice':'bob','bob':'alice'}
 curveType = ec.SECP384R1() #See project writeup for the reason behind this decision
-sig_alg, exc_alg, kdf_hash = ec.ECDSA(hashes.SHA256()), ec.ECDH(), hashes.SHA512
+sig_alg = ec.ECDSA(hashes.SHA256())
+exc_alg = ec.ECDH()
+kdf_hash = hashes.SHA256 #done like this as hash instances need to be initialized independently
 firstMsgData = b'Alice would like to connect with Bob.'
 
 ##CLIENT##
@@ -74,7 +76,7 @@ def User_register(uname:str):
   print(f"Connecting to server to register {uname}.")
   #Interact with server to register
   with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-    s.connect(('127.0.0.1', target_port))
+    s.connect((target_host, target_port))
     #verify username
     s.send(uname.encode())
     msg = s.recv(32)
@@ -113,7 +115,7 @@ def User_request(uname:str):
   #interleaved with socket handling, perform K1-4 generation and takes first message
   print(f"Connecting to server as {uname} to request msg to {targetSet[uname]}.")
   with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-    s.connect(('127.0.0.1', target_port))
+    s.connect((target_host, target_port))
     #verify username
     s.send(uname.encode())
     msg = s.recv(32)
@@ -171,8 +173,9 @@ def User_request(uname:str):
     assoc_data = bytearray()#specifically requires PEM bytes of sender idpubkey, then receiver idpubkey, for first message
     assoc_data.extend(identity_key.public_key().public_bytes(Encoding.PEM,PublicFormat.SubjectPublicKeyInfo))
     assoc_data.extend(t_idpk.public_bytes(Encoding.PEM,PublicFormat.SubjectPublicKeyInfo))
-    ciphertext = AESGCM(Ka).encrypt(nonce,firstMsgData,bytes(assoc_data))
-    
+    assoc_data = bytes(assoc_data)
+    ciphertext = AESGCM(Ka).encrypt(nonce,firstMsgData,assoc_data)
+
     #construct and send
     encmsg.extend(nonce)
     encmsg.extend(ciphertext)
@@ -180,6 +183,12 @@ def User_request(uname:str):
     time.sleep(2)
     s.send(b'Confirming 2nd client has sent message to registerer.')#TOOD replace
     time.sleep(2)
+  
+  #store associated data and KDF data for this user
+  with open(f"{uname}_data/kdf0.hx",'wb') as f:
+    f.write(bytes(K))
+  with open(f"{uname}_data/assoc.hx",'wb') as f:
+    f.write(assoc_data)
 
 
 def User_listen(uname:str):
@@ -203,7 +212,7 @@ def User_listen(uname:str):
   K1,K2,K3,K4 = None,None,None,None
   print(f"Connecting to server as {uname} to receive message from {targetSet[uname]}.")
   with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-    s.connect(('127.0.0.1', target_port))
+    s.connect((target_host, target_port))
     #verify username
     s.send(uname.encode())
     msg = s.recv(32)
@@ -262,7 +271,8 @@ def User_listen(uname:str):
   assoc_data = bytearray()#specifically requires PEM bytes of sender idpubkey, then receiver idpubkey, for first message
   assoc_data.extend(id_pka.public_bytes(Encoding.PEM,PublicFormat.SubjectPublicKeyInfo))
   assoc_data.extend(ikb.public_key().public_bytes(Encoding.PEM,PublicFormat.SubjectPublicKeyInfo))
-  plaintext = AESGCM(Ka).decrypt(nonce,cdata,bytes(assoc_data))
+  assoc_data = bytes(assoc_data)
+  plaintext = AESGCM(Ka).decrypt(nonce,cdata,assoc_data)
   
   #construct and send
   print("Expected first message printed next to received first message below.")
@@ -274,6 +284,11 @@ def User_listen(uname:str):
   print(Ka.hex())#use for first message
   print(Kb.hex())#use for future KDF
 
+  #store associated data and KDF data for this user
+  with open(f"{uname}_data/kdf0.hx",'wb') as f:
+    f.write(bytes(K))
+  with open(f"{uname}_data/assoc.hx",'wb') as f:
+    f.write(assoc_data)
 
 
 
